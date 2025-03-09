@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from .models import File
 from .serializers import UserSerializer, FileSerializer
 import logging
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -29,17 +30,25 @@ class SignupView(APIView):
 
 class FileListCreateView(generics.ListCreateAPIView):
     serializer_class = FileSerializer
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         return File.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
+        if 'id' in serializer.validated_data and serializer.validated_data['id'] < 0:
+            del serializer.validated_data['id']
         serializer.save(user=self.request.user)
 
 class FileDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = FileSerializer
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         return File.objects.filter(user=self.request.user)
+
+    def perform_destroy(self, instance):
+        instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

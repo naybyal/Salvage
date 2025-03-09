@@ -22,4 +22,15 @@ class FileSerializer(serializers.ModelSerializer):
     class Meta:
         model = File
         fields = '__all__'
-        read_only_fields = ('user', 'rust_code')
+        read_only_fields = ('user',)
+
+    def create(self, validated_data):
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        instance.name = validated_data.get('name', instance.name)
+        instance.c_code = validated_data.get('c_code', instance.c_code)
+        instance.rust_code = validated_data.get('rust_code', instance.rust_code)
+        instance.save()
+        return instance

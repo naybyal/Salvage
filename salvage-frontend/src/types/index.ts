@@ -4,6 +4,14 @@ export interface File {
   c_code: string;
   rust_code: string;
   created_at: string;
+  user?: number;
+}
+
+export interface SaveFileRequest {
+  id?: number;
+  name: string;
+  c_code: string;
+  rust_code?: string;
 }
 
 export interface AuthCredentials {
