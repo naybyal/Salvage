@@ -14,24 +14,7 @@ const CodeEditor: React.FC<{
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [currentFile, setCurrentFile] = useState<File | null>(null);
   const [isTranspiled, setIsTranspiled] = useState(false);
-
-  // Load from localStorage on initial load
-  useEffect(() => {
-    const savedState = localStorage.getItem('currentFile');
-    if (savedState) {
-      const { c, rust } = JSON.parse(savedState);
-      setCCode(c);
-      setRustCode(rust);
-    }
-  }, []);
-
-  // Persist to localStorage on change
-  useEffect(() => {
-    localStorage.setItem('currentFile', JSON.stringify({
-      c: cCode,
-      rust: rustCode
-    }));
-  }, [cCode, rustCode]);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (selectedFile) {
@@ -39,12 +22,6 @@ const CodeEditor: React.FC<{
       setRustCode(selectedFile.rust_code || '');
       setCurrentFile(selectedFile);
       setIsTranspiled(!!selectedFile.rust_code);
-
-      // Update localStorage with selected file
-      localStorage.setItem('currentFile', JSON.stringify({
-        c: selectedFile.c_code,
-        rust: selectedFile.rust_code || ''
-      }));
     }
   }, [selectedFile]);
 
@@ -56,11 +33,6 @@ const CodeEditor: React.FC<{
       setRustCode(result);
       setIsTranspiled(true);
       setActiveTab('rust');
-
-      // Auto-save after successful transpilation
-      if (currentFile?.id) {
-        await handleSave();
-      }
     } finally {
       setIsTranspiling(false);
     }
@@ -69,9 +41,10 @@ const CodeEditor: React.FC<{
   const handleCopyCode = async () => {
     try {
       await navigator.clipboard.writeText(rustCode);
-      alert('Code copied to clipboard!');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      alert('Failed to copy code');
+      console.error('Failed to copy code:', err);
     }
   };
 
@@ -100,35 +73,40 @@ const CodeEditor: React.FC<{
       if (isNewFile) {
         setSelectedFile(fileData);
       }
-      alert('File saved successfully!');
     } catch (error) {
       alert('Failed to save file');
     }
   };
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex justify-between items-center mb-6 gap-4">
+    <div className="h-full flex flex-col bg-gradient-to-br from-gray-900 to-gray-800 text-white">
+      <div className="flex justify-between items-center p-4 border-b border-gray-700">
         <div className="flex gap-2">
           <button
             onClick={() => setActiveTab('c')}
-            className={`px-3 py-1.5 rounded-lg text-sm ${
+            className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
               activeTab === 'c' 
                 ? 'bg-red-600 hover:bg-red-700' 
-                : 'bg-neutral-700 hover:bg-neutral-600'
+                : 'bg-gray-700 hover:bg-gray-600'
             }`}
           >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
             C Code
           </button>
           {isTranspiled && (
             <button
               onClick={() => setActiveTab('rust')}
-              className={`px-3 py-1.5 rounded-lg text-sm ${
+              className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
                 activeTab === 'rust' 
                   ? 'bg-red-600 hover:bg-red-700' 
-                  : 'bg-neutral-700 hover:bg-neutral-600'
+                  : 'bg-gray-700 hover:bg-gray-600'
               }`}
             >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1.5M14 4l2-1.5M6 7l-2 1M4 7l2-1M6 7v2.5M12 21l-2-1.5M12 21l2-1.5M12 21v-5.5M12 13.5V10l-2 1.5" />
+              </svg>
               Rust Code
             </button>
           )}
@@ -138,62 +116,51 @@ const CodeEditor: React.FC<{
           {isTranspiled && (
             <button
               onClick={() => setShowAnalytics(!showAnalytics)}
-              className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                showAnalytics ? 'bg-red-700' : 'bg-red-600 hover:bg-red-700'
-              }`}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg flex items-center gap-2"
             >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              </svg>
               Analytics
             </button>
           )}
           <button
             onClick={handleTranspile}
             disabled={isTranspiling || !cCode.trim()}
-            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm disabled:opacity-50 transition-colors"
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50"
           >
             {isTranspiling ? 'Transpiling...' : 'Transpile'}
           </button>
           <button
             onClick={handleSave}
             disabled={!rustCode.trim()}
-            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm disabled:opacity-50 transition-colors"
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50"
           >
             Save
           </button>
         </div>
       </div>
 
-      <div className="flex-1 bg-neutral-700/30 rounded-lg border border-neutral-600 overflow-hidden relative">
+      <div className="flex-1 relative">
         {activeTab === 'c' ? (
           <textarea
             value={cCode}
             onChange={(e) => setCCode(e.target.value)}
-            className="w-full h-full p-4 bg-transparent resize-none outline-none text-neutral-200 font-mono text-sm"
+            className="w-full h-full p-6 bg-gray-800/50 resize-none outline-none text-gray-200 font-mono text-sm"
             placeholder="// Enter your C code here..."
           />
         ) : (
           <div className="relative h-full">
-            <pre className="w-full h-full p-4 overflow-auto bg-transparent text-neutral-200 font-mono text-sm">
+            <pre className="w-full h-full p-6 bg-gray-800/50 text-gray-200 font-mono text-sm overflow-auto">
               {rustCode || '// Transpile C code to see Rust equivalent'}
             </pre>
             {rustCode && (
               <button
                 onClick={handleCopyCode}
-                className="absolute right-2 top-2 p-1.5 bg-neutral-800 rounded-lg hover:bg-neutral-700 transition-colors"
-                title="Copy code"
+                className="absolute top-4 right-4 p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-4 w-4 text-neutral-300"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                  />
+                <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                 </svg>
               </button>
             )}

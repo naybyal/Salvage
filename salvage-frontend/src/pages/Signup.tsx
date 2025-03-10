@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import AuthForm from '../components/AuthForm';
-import { registerUser } from '../api/index';
+import { registerUser } from '../api';
 import { AuthCredentials } from '../types';
 
 const Signup: React.FC = () => {
@@ -16,14 +17,21 @@ const Signup: React.FC = () => {
   };
 
   return (
-    <AuthForm
-      title="Sign Up"
-      subtitle="Create your account to start transpiling code efficiently."
-      buttonText="Create Account"
-      alternateText="Already have an account?"
-      alternateLink="/login"
-      onSubmit={handleSignup}
-    />
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="min-h-screen bg-gray-900 flex items-center justify-center p-4"
+    >
+      <AuthForm
+        title="Get Started"
+        subtitle="Create your account to begin transpiling"
+        buttonText="Create Account"
+        alternateText="Already have an account?"
+        alternateLink="/login"
+        onSubmit={handleSignup}
+      />
+    </motion.div>
   );
 };
 

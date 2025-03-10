@@ -60,13 +60,25 @@ export const loginUser = async (credentials: AuthCredentials): Promise<JWTTokens
   return response.data;
 };
 
+export const createFile = async (fileData: Partial<File>): Promise<File> => {
+  try {
+    const response = await api.post('/api/files/', fileData);
+    return response.data;
+  } catch (error) {
+    console.error('Create file error:', error);
+    throw new Error('Failed to create file');
+  }
+};
+
 export const getFiles = async (): Promise<File[]> => {
   const response = await api.get('/api/files/');
   return response.data;
 };
 
-export const saveFile = async (fileData: SaveFileRequest): Promise<File> => {
-  const response = await api.post('/api/files/', fileData);
+export const saveFile = async (fileData: File): Promise<File> => {
+  const response = fileData.id
+    ? await api.put(`/api/files/${fileData.id}/`, fileData)
+    : await api.post('/api/files/', fileData);
   return response.data;
 };
 

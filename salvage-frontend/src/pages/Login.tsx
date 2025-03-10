@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import AuthForm from '../components/AuthForm';
-import { loginUser } from '../api/index';
+import { loginUser } from '../api';
 import { AuthCredentials } from '../types';
 
 const Login: React.FC = () => {
@@ -18,14 +19,21 @@ const Login: React.FC = () => {
   };
 
   return (
-    <AuthForm
-      title="Login"
-      subtitle="A sophisticated platform for efficient code writing, editing, and transpiling."
-      buttonText="Login"
-      alternateText="Don't have an account?"
-      alternateLink="/signup"
-      onSubmit={handleLogin}
-    />
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="min-h-screen bg-gray-900 flex items-center justify-center p-4"
+    >
+      <AuthForm
+        title="Welcome Back"
+        subtitle="Continue your code transformation journey"
+        buttonText="Sign In"
+        alternateText="New here?"
+        alternateLink="/signup"
+        onSubmit={handleLogin}
+      />
+    </motion.div>
   );
 };
 

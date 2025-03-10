@@ -37,8 +37,7 @@ class FileListCreateView(generics.ListCreateAPIView):
         return File.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
-        if 'id' in serializer.validated_data and serializer.validated_data['id'] < 0:
-            del serializer.validated_data['id']
+        # Remove the file limit check
         serializer.save(user=self.request.user)
 
 class FileDetailView(generics.RetrieveUpdateDestroyAPIView):
