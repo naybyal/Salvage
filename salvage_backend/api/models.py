@@ -16,3 +16,20 @@ class File(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.user.username}"
+    
+class TranslationTask(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+
+    file = models.ForeignKey(File, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    logs = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"TranslationTask {self.id} ({self.file.name})"
