@@ -6,6 +6,8 @@ from .models import File
 from .serializers import UserSerializer, FileSerializer
 import logging
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from salvage_backend.services.transpiler_workflow import run_transpilation_workflow
+
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -51,3 +53,11 @@ class FileDetailView(generics.RetrieveUpdateDestroyAPIView):
     def perform_destroy(self, instance):
         instance.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+    
+class TranspileAPIView(APIView):
+    def post(self, request):
+        input_file = request.data.get("input_file")
+        # Optionally, process and store the file, then pass its path
+        segment_files = []  # You'd derive this from your segmentation logic.
+        result = run_transpilation_workflow(input_file, segment_files)
+        return Response({"task_id": result.id, "status": "Workflow started"})

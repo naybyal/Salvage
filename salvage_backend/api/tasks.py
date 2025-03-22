@@ -1,7 +1,7 @@
 # api/tasks.py
 from celery import shared_task
 from .models import TranslationTask, TranslationResult, Analysis
-import networkx as nx 
+import networkx as nx
 
 # from .utils.translation_pipeline import process_translation  # or from transpiler.translator import ...
 # from .utils.performance import perform_analysis
@@ -98,4 +98,15 @@ def transpile_segment(segment_file):
     with open(rust_file, "w") as f:
         f.write(rust_code)
     return rust_file
+
+@shared_task
+def postprocess_task(segment_files):
+    # Import your cleaning function
+    from salvage_backend.transpiler.services.postprocessor import clean_and_merge_segments
+    final_rust_code = clean_and_merge_segments(segment_files)
+    output_file = "final_transpiled.rs"
+    with open(output_file, "w") as f:
+        f.write(final_rust_code)
+    return output_file
+
 
