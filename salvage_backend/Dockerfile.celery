@@ -1,0 +1,17 @@
+# Dockerfile.celery: For running the Celery worker
+FROM python:3.11.2-alpine
+
+WORKDIR /usr/src/app
+
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+COPY requirements.txt /usr/src/app/requirements.txt
+
+RUN apk update && apk add --no-cache build-base gcc musl-dev \
+    && pip install --upgrade pip \
+    && pip install -r requirements.txt
+
+COPY . /usr/src/app/
+
+CMD ["celery", "-A", "salvage_backend", "worker", "--loglevel=info"]
