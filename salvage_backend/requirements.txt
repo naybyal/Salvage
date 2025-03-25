@@ -16,7 +16,7 @@ django-cors-headers==4.7.0
 djangorestframework==3.15.2
 djangorestframework_simplejwt==5.5.0
 dotenv==0.9.9
-google-ai-generativelanguage==0.6.17
+google-ai-generativelanguage==0.6.15
 google-api-core==2.24.2
 google-api-python-client==2.165.0
 google-auth==2.38.0
@@ -35,11 +35,11 @@ prompt_toolkit==3.0.50
 proto-plus==1.26.1
 protobuf==5.29.4
 psycopg2-binary==2.9.10
-pyasn1==0.6.1
+pyasn1==0.6.111
 pyasn1_modules==0.4.1
 pydantic==2.10.6
-pydantic_core==2.32.0
-PyJWT==2.10.1
+pydantic_core==2.27.2
+PyJWT==2.9.0
 pyparsing==3.2.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.0.1

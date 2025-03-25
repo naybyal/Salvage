@@ -1,0 +1,5 @@
+{
+    "python.analysis.extraPaths": [
+        "./salvage_backend/salvage_backend"
+    ]
+}

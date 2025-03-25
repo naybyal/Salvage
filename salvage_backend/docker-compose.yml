@@ -1,0 +1,36 @@
+
+services:
+  django:
+    container_name: django
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/usr/src/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    environment:
+      - DEBUG=1
+      - SECRET_KEY=${SECRET_KEY}
+      - ALLOWED_HOSTS=localhost,127.0.0.1
+      - DATABASE_URL=${DATABASE_URL}
+
+  celery:
+    container_name: celery
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    volumes:
+      - .:/usr/src/app
+    depends_on:
+      - redis
+
+
+  redis:
+    container_name: redis
+    image: redis:latest
+    ports:
+      - "6379:6379"
