@@ -4,60 +4,52 @@ import json
 from hashlib import md5
 from collections import OrderedDict
 from tree_sitter import Language, Parser
+import tree_sitter_rust as tsrust
 
-# load the Rust language:
-RUST_LANGUAGE = Language('build/my-languages.so', 'rust')
+RUST_LANGUAGE = Language(tsrust.language())
 
 def parse_rust_code(code: str):
-    """
-    Parse Rust code using tree-sitter and return the parse tree.
-    """
-    parser = Parser()
-    parser.set_language(RUST_LANGUAGE)
-    tree = parser.parse(code.encode('utf8'))
-    return tree
+    """Parse Rust code using tree-sitter and return the parse tree."""
+    if RUST_LANGUAGE is None:
+        raise RuntimeError("Rust language library not initialized")
+    
+    parser = Parser(RUST_LANGUAGE)
+    return parser.parse(code.encode('utf8'))
 
 def extract_function_signatures(code: str) -> list:
-    """
-    Walk the AST and extract function signatures.
-    For simplicity, we extract the text of each function item up to the opening brace '{'.
-    """
+    """Extract function signatures using tree-sitter AST."""
     tree = parse_rust_code(code)
     root_node = tree.root_node
     signatures = []
 
     def traverse(node):
-        # Tree-sitter node type for function items in Rust is usually 'function_item'
         if node.type == 'function_item':
-            # Extract the text of the function item from the code
-            # Find the first '{' if it exists
-            text = code[node.start_byte:node.end_byte]
-            brace_index = text.find('{')
-            signature = text if brace_index == -1 else text[:brace_index].strip()
-            if signature:
-                signatures.append(signature)
+            body_node = None
+            for child in node.children:
+                if child.type == 'block':
+                    body_node = child
+                    break
+            if body_node:
+                start = node.start_byte
+                end = body_node.start_byte
+                signature = code[start:end].strip()
+            else:
+                signature = code[node.start_byte:node.end_byte].strip()
+            signatures.append(signature)
         for child in node.children:
             traverse(child)
-
     traverse(root_node)
     return signatures
 
 def compute_segment_hash(segment: str) -> str:
-    """
-    Compute a hash for a segment based on its extracted function signatures.
-    This hash will help identify duplicate segments.
-    """
+    """Compute MD5 hash based on function signatures."""
     signatures = extract_function_signatures(segment)
-    # Concatenate all signatures into one string
     concatenated = ''.join(sorted(signatures))
     return md5(concatenated.encode('utf8')).hexdigest()
 
 def remove_duplicate_segments(segments: dict) -> dict:
-    """
-    Given a dictionary of segments {segment_name: code}, remove duplicates
-    based on the computed signature hash. Returns a dictionary of unique segments.
-    """
-    unique_segments = {}
+    """Remove segments with duplicate function signatures."""
+    unique_segments = OrderedDict()
     seen_hashes = set()
 
     for name, code in segments.items():
@@ -68,100 +60,71 @@ def remove_duplicate_segments(segments: dict) -> dict:
     return unique_segments
 
 def extract_import_statements(segment: str) -> list:
-    """
-    Use regex to extract Rust import statements from a segment.
-    Assumes that imports are written using the 'use' keyword.
-    """
-    import_pattern = re.compile(r'^\s*use\s+[^;]+;', re.MULTILINE)
+    """Extract Rust imports using regex (handles multi-line)."""
+    import_pattern = re.compile(r'^\s*use\b.*?;', re.MULTILINE | re.DOTALL)
     return import_pattern.findall(segment)
 
 def deduplicate_imports(segments: list) -> tuple:
-    """
-    For a list of segments, extract and deduplicate all import statements.
-    Returns a tuple: (unique_imports, segments_without_imports)
-    """
+    """Deduplicate imports and remove them from segments."""
     all_imports = []
     cleaned_segments = []
+    import_pattern = re.compile(r'^\s*use\b.*?;', re.MULTILINE | re.DOTALL)
+
     for seg in segments:
         imports = extract_import_statements(seg)
         all_imports.extend(imports)
-        # Remove import statements from the segment
-        cleaned = re.sub(r'^\s*use\s+[^;]+;\s*', '', seg, flags=re.MULTILINE)
-        cleaned_segments.append(cleaned.strip())
+        cleaned = import_pattern.sub('', seg).strip()
+        cleaned_segments.append(cleaned)
+    
     unique_imports = list(OrderedDict.fromkeys(all_imports))
     return unique_imports, cleaned_segments
 
-def load_dependency_metadata(metadata_path: str) -> dict:
-    """
-    Load dependency metadata from a JSON file.
-    Expected format:
-    {
-        "sorted_segments": ["segmentA", "segmentB", ...]
-    }
-    """
+def load_dependency_metadata(metadata_path: str) -> list:
+    """Load sorted segment order from metadata."""
     with open(metadata_path, 'r') as f:
         metadata = json.load(f)
     return metadata.get("sorted_segments", [])
 
 def merge_segments(segments: dict, sorted_order: list, imports: list) -> str:
-    """
-    Merge the ordered segments into a single Rust code string.
-    """
-    merged_code = ""
-    # Consolidate imports at the top
+    """Merge segments with consolidated imports and in specified order."""
+    merged_code = "// Merged Rust Code\n\n"
     if imports:
-        merged_code += "\n".join(imports) + "\n\n"
+        merged_code += "// Imports\n" + "\n".join(imports) + "\n\n"
     for seg_name in sorted_order:
         if seg_name in segments:
-            merged_code += f"// {seg_name}\n" + segments[seg_name] + "\n\n"
+            merged_code += f"// Segment: {seg_name}\n{segments[seg_name]}\n\n"
     return merged_code.strip()
 
 def clean_and_merge_segments(segment_dir: str, metadata_path: str, output_path: str) -> str:
-    """
-    Orchestrates the cleaning and merging process:
-      1. Load all .rs segment files from segment_dir.
-      2. Remove duplicate segments.
-      3. Deduplicate import statements across segments.
-      4. Load dependency metadata (sorted order of segment names).
-      5. Merge segments in that order with consolidated imports.
-      6. Write the final merged code to output_path.
-    Returns the path to the final output file.
-    """
-    # Load all segments into a dict: {filename: code}
+    # Load all segments
     segments = {}
     for filename in os.listdir(segment_dir):
         if filename.endswith('.rs'):
             with open(os.path.join(segment_dir, filename), 'r', encoding='utf8') as f:
                 segments[filename] = f.read()
 
-    # Remove duplicate segments
+    # Remove duplicates
     unique_segments = remove_duplicate_segments(segments)
+    segment_codes = list(unique_segments.values())
 
     # Deduplicate imports
-    segment_codes = list(unique_segments.values())
     unique_imports, cleaned_segments = deduplicate_imports(segment_codes)
 
-    # Rebuild a mapping from segment name to cleaned code
-    cleaned_mapping = {}
+    # Rebuild cleaned mapping preserving order
+    cleaned_mapping = OrderedDict()
     for (name, _), cleaned_code in zip(unique_segments.items(), cleaned_segments):
         cleaned_mapping[name] = cleaned_code
 
-    # Load dependency metadata for ordering (assumed to be a JSON file with a key "sorted_segments")
+    # Determine merge order
     sorted_order = load_dependency_metadata(metadata_path)
-    # If metadata ordering doesn't include all segments, append the missing ones at the end
-    for seg in cleaned_mapping.keys():
-        if seg not in sorted_order:
-            sorted_order.append(seg)
+    missing = [name for name in cleaned_mapping if name not in sorted_order]
+    sorted_order += missing  # Append missing segments
 
-    # Merge segments according to sorted_order
+    # Merge and save
     final_code = merge_segments(cleaned_mapping, sorted_order, unique_imports)
-
-    # Write final merged code to output file
     with open(output_path, 'w', encoding='utf8') as f:
         f.write(final_code)
-
     return output_path
 
-# Example usage (uncomment and adjust paths as needed):
-# final_file = clean_and_merge_segments("path/to/segments", "path/to/metadata.json", "path/to/final_output.rs")
-# print(f"Final transpiled Rust code saved to {final_file}")
+# Example usage:
+# final_file = clean_and_merge_segments("segments_dir", "metadata.json", "output.rs")

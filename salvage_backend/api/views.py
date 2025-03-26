@@ -1,13 +1,15 @@
+import os
+import logging
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.contrib.auth import get_user_model
 from .models import File
 from .serializers import UserSerializer, FileSerializer
-import logging
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from salvage_backend.services.transpiler_workflow import run_transpilation_workflow
-
+from services.transpiler_workflow import run_transpilation_workflow
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -17,7 +19,7 @@ class SignupView(APIView):
         serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
             try:
-                user = serializer.save()
+                serializer.save()
                 return Response(
                     {"message": "User created successfully"},
                     status=status.HTTP_201_CREATED
@@ -39,7 +41,6 @@ class FileListCreateView(generics.ListCreateAPIView):
         return File.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
-        # Remove the file limit check
         serializer.save(user=self.request.user)
 
 class FileDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -52,12 +53,46 @@ class FileDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def perform_destroy(self, instance):
         instance.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-    
+
 class TranspileAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
     def post(self, request):
-        input_file = request.data.get("input_file")
-        # Optionally, process and store the file, then pass its path
-        segment_files = []  # You'd derive this from your segmentation logic.
-        result = run_transpilation_workflow(input_file, segment_files)
-        return Response({"task_id": result.id, "status": "Workflow started"})
+        input_code = request.data.get('code')
+        if not input_code:
+            return Response(
+                {"error": "No input code provided"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Save the input code to a temporary file
+        temp_file_path = default_storage.save(
+            f'temp/{request.FILES.get("input_file", "input")}.txt',  # You may adjust the file naming as needed
+            ContentFile(input_code)
+        )
+        absolute_file_path = os.path.join(default_storage.location, temp_file_path)
+
+        try:
+            # Initiate the transpilation workflow
+            result = run_transpilation_workflow(absolute_file_path)
+            # Wait for the Celery workflow to complete (adjust the timeout as needed)
+            final_output_path = result.get(timeout=300)  # e.g., wait up to 5 minutes
+            if os.path.exists(final_output_path):
+                with open(final_output_path, "r", encoding="utf-8") as f:
+                    final_rust_code = f.read()
+                return Response(
+                    {"rust_code": final_rust_code},
+                    status=status.HTTP_200_OK
+                )
+            else:
+                return Response(
+                    {"error": "Final output file not found."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        except Exception as e:
+            logger.error(f"Transpilation error: {str(e)}")
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

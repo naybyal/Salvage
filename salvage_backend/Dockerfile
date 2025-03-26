@@ -1,23 +1,45 @@
-# Dockerfile (for Django)
-FROM python:3.11.2-alpine
+FROM python:3.11-bookworm
+
+# Add user and group first to ensure proper permissions
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 
 WORKDIR /usr/src/app
 
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# Install system dependencies including git
-RUN apk update && \
-    apk add --no-cache build-base gcc musl-dev git
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    clang-14 \
+    libclang-14-dev \
+    git \
+    python3-clang-14 \
+    llvm-14 \
+    llvm-14-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy the requirements file into the container
-COPY ./requirements.txt /usr/src/app/requirements.txt
+ENV LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH"
+# Copy requirements first for caching
+COPY ./requirements.txt .
 
-# Upgrade pip and install Python dependencies
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copy the entire project into the container
-COPY . /usr/src/app/
+
+COPY /build/my-languages.so /usr/src/app/build/my-languages.so
+# Copy app files
+COPY . .
+
+# Ensure 'output' directory exists and has correct permissions
+RUN mkdir -p /usr/src/app/output && \
+    chmod -R 777 /usr/src/app/output && \
+    chown -R appuser:appgroup /usr/src/app/output
+
+# Set ownership before switching user
+RUN chown -R appuser:appgroup /usr/src/app
+
+USER appuser
 
 EXPOSE 8000
 
