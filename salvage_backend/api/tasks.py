@@ -94,7 +94,7 @@ def segmentation_task(data):
 # Task for transpiling each segment individually
 @shared_task
 def transpile_segment(segment_file):
-    from transpiler.services.translator import Transpiler
+    from transpiler.services.translator.translator import Transpiler
     with open(segment_file, "r") as f:
         c_code = f.read()
     transpiler = Transpiler()
@@ -107,9 +107,9 @@ def transpile_segment(segment_file):
 # Task for postprocessing: cleaning and merging all Rust segments into one final file
 @shared_task
 def postprocess_task(segment_files):
-    from transpiler.services.postprocessor import clean_and_merge_segments
-    final_rust_code = clean_and_merge_segments(segment_files)
-    output_file = "final_transpiled.rs"
+    from transpiler.services.postprocessor.postprocess import clean_and_merge_segments
+    final_rust_code = clean_and_merge_segments(segment_dir='/tmp/output/segments/', metadata_path='/tmp/output/metadata.json', output_path='/tmp/output/final_output.rs')
+    output_file = "/tmp/output/final_transpiled.rs"
     with open(output_file, "w") as f:
         f.write(final_rust_code)
     return output_file

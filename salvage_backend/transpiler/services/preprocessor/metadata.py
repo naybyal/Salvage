@@ -2,7 +2,7 @@ import os
 import json
 import networkx as nx
 
-def generate_metadata(symbols, segment_files, output_dir: str = "output"):
+def generate_metadata(symbols, segment_files, output_dir: str = "/tmp/output"):
     """Generates metadata linking segments with extracted symbols."""
     os.makedirs(output_dir, exist_ok=True)
     metadata = {"segments": []}

@@ -1,10 +1,66 @@
 import os
 import logging
 from typing import List, Dict, Any
-import clang.cindex
 import networkx as nx
+import clang.cindex
+from clang.cindex import Config
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+Config.set_library_file('/usr/lib/x86_64-linux-gnu/libclang-14.so.1')
+
+def segment_code(file: str, symbols: List[Dict[str, Any]], output_dir: str = "/tmp/output/segments/") -> Dict[str, str]:
+    """
+    Segments code based on extracted symbols ensuring each segment's boundaries are within file limits.
+    Writes each segment to a separate file and returns a mapping of symbol names to file paths.
+    
+    :param file: The path to the preprocessed C file.
+    :param symbols: List of symbol dictionaries.
+    :param output_dir: Directory where segments will be saved.
+    :return: A dictionary mapping symbol names to segment file paths.
+    """
+    # Use an absolute path to avoid potential permission issues
+    output_dir = os.path.abspath(output_dir)
+    
+    # Try to create directory with full permissions
+    try:
+        os.makedirs(output_dir, mode=0o777, exist_ok=True)
+    except Exception as e:
+        logging.error(f"Failed to create output directory {output_dir}: {e}")
+        # Fallback to using a temporary directory if directory creation fails
+        import tempfile
+        output_dir = tempfile.mkdtemp(prefix="code_segments_")
+        logging.warning(f"Using temporary directory: {output_dir}")
+
+    try:
+        with open(file, "r") as f:
+            lines = f.readlines()
+    except IOError as e:
+        logging.error(f"Error reading file {file}: {e}")
+        return {}
+
+    segments: Dict[str, str] = {}
+    for symbol in symbols:
+        start = symbol["start_line"] - 1  # Convert to 0-based index
+        end = symbol["end_line"]
+        if start < 0 or end > len(lines):
+            logging.warning(f"Skipping symbol {symbol['name']} due to invalid line range: {start}-{end}")
+            continue
+
+        segment_text = "".join(lines[start:end])
+        segments[symbol["name"]] = segment_text
+
+    # Save segments to individual files
+    segment_files: Dict[str, str] = {}
+    for idx, (name, code) in enumerate(segments.items()):
+        segment_file = os.path.join(output_dir, f"segment_{idx}_{name}.c")
+        try:
+            with open(segment_file, "w") as f:
+                f.write(code)
+            segment_files[name] = segment_file
+            logging.info(f"Wrote segment for symbol {name} to {segment_file}")
+        except IOError as e:
+            logging.error(f"Failed to write segment for {name} to {segment_file}: {e}")
+
+    return segment_files
 
 def extract_symbols(file: str) -> List[Dict[str, Any]]:
     """
@@ -70,46 +126,3 @@ def build_dependency_graph(symbols: List[Dict[str, Any]]) -> nx.DiGraph:
         for dependency in symbol["dependencies"]:
             graph.add_edge(symbol["name"], dependency)
     return graph
-
-def segment_code(file: str, symbols: List[Dict[str, Any]], output_dir: str = "output") -> Dict[str, str]:
-    """
-    Segments code based on extracted symbols ensuring each segment's boundaries are within file limits.
-    Writes each segment to a separate file and returns a mapping of symbol names to file paths.
-    
-    :param file: The path to the preprocessed C file.
-    :param symbols: List of symbol dictionaries.
-    :param output_dir: Directory where segments will be saved.
-    :return: A dictionary mapping symbol names to segment file paths.
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    try:
-        with open(file, "r") as f:
-            lines = f.readlines()
-    except IOError as e:
-        logging.error(f"Error reading file {file}: {e}")
-        return {}
-
-    segments: Dict[str, str] = {}
-    for symbol in symbols:
-        start = symbol["start_line"] - 1  # Convert to 0-based index
-        end = symbol["end_line"]
-        if start < 0 or end > len(lines):
-            logging.warning(f"Skipping symbol {symbol['name']} due to invalid line range: {start}-{end}")
-            continue
-
-        segment_text = "".join(lines[start:end])
-        segments[symbol["name"]] = segment_text
-
-    # Save segments to individual files
-    segment_files: Dict[str, str] = {}
-    for idx, (name, code) in enumerate(segments.items()):
-        segment_file = os.path.join(output_dir, f"segment_{idx}_{name}.c")
-        try:
-            with open(segment_file, "w") as f:
-                f.write(code)
-            segment_files[name] = segment_file
-            logging.info(f"Wrote segment for symbol {name} to {segment_file}")
-        except IOError as e:
-            logging.error(f"Failed to write segment for {name} to {segment_file}: {e}")
-
-    return segment_files

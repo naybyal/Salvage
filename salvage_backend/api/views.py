@@ -59,26 +59,37 @@ class TranspileAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        input_file = request.FILES.get('input_file')
-        if not input_file:
+        input_code = request.data.get('code')
+        if not input_code:
             return Response(
-                {"error": "No input file provided"},
+                {"error": "No input code provided"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Save the uploaded file to a temporary location
+        # Save the input code to a temporary file
         temp_file_path = default_storage.save(
-            f'temp/{input_file.name}', ContentFile(input_file.read())
+            f'temp/{request.FILES.get("input_file", "input")}.txt',  # You may adjust the file naming as needed
+            ContentFile(input_code)
         )
         absolute_file_path = os.path.join(default_storage.location, temp_file_path)
 
         try:
             # Initiate the transpilation workflow
             result = run_transpilation_workflow(absolute_file_path)
-            return Response(
-                {"task_id": result.id, "status": "Workflow started"},
-                status=status.HTTP_202_ACCEPTED
-            )
+            # Wait for the Celery workflow to complete (adjust the timeout as needed)
+            final_output_path = result.get(timeout=300)  # e.g., wait up to 5 minutes
+            if os.path.exists(final_output_path):
+                with open(final_output_path, "r", encoding="utf-8") as f:
+                    final_rust_code = f.read()
+                return Response(
+                    {"rust_code": final_rust_code},
+                    status=status.HTTP_200_OK
+                )
+            else:
+                return Response(
+                    {"error": "Final output file not found."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
         except Exception as e:
             logger.error(f"Transpilation error: {str(e)}")
             return Response(

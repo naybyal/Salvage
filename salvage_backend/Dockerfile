@@ -1,4 +1,4 @@
-FROM python:3.11.2-bullseye
+FROM python:3.11-bookworm
 
 # Add user and group first to ensure proper permissions
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser
@@ -12,18 +12,22 @@ ENV PYTHONUNBUFFERED 1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
-    clang \
-    libclang-dev \
+    clang-14 \
+    libclang-14-dev \
     git \
-    llvm \
-    llvm-dev \
+    python3-clang-14 \
+    llvm-14 \
+    llvm-14-dev \
     && rm -rf /var/lib/apt/lists/*
 
+ENV LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH"
 # Copy requirements first for caching
 COPY ./requirements.txt .
 
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
+
+COPY /build/my-languages.so /usr/src/app/build/my-languages.so
 # Copy app files
 COPY . .
 
