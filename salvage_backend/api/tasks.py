@@ -1,11 +1,11 @@
-# api/tasks.py
-from celery import shared_task
-from .models import TranslationTask, TranslationResult, Analysis
+from celery import shared_task, chord
 import networkx as nx
+import logging
+from .models import TranslationTask, TranslationResult, Analysis
 
-# from .utils.translation_pipeline import process_translation  # or from transpiler.translator import ...
-# from .utils.performance import perform_analysis
+logger = logging.getLogger(__name__)
 
+# Task for performing code translation from C to Rust
 @shared_task
 def translation_task(task_id):
     """
@@ -13,17 +13,14 @@ def translation_task(task_id):
     """
     try:
         task = TranslationTask.objects.get(id=task_id)
-        c_code = task.source_code.code
-        # rust_code, logs = process_translation(c_code)
-
-        # For demonstration, pretend the translator returns these:
+        c_code = task.file.c_code  
+        # Replace with actual translation logic when ready:
         rust_code = "// Rust code"
         logs = "Translation logs..."
 
-        # Save results
         TranslationResult.objects.update_or_create(
             translation_task=task,
-            defaults={'rust_code': rust_code, 'compilation_logs': logs}
+            defaults={'output': rust_code, 'created_at': task.created_at}
         )
         task.status = 'completed'
         task.save()
@@ -33,6 +30,7 @@ def translation_task(task_id):
         task.save()
         return f"Translation {task_id} failed: {str(e)}"
 
+# Task for analyzing performance comparing C and Rust binaries
 @shared_task
 def analysis_task(task_id, c_binary_path, rust_binary_path):
     """
@@ -40,7 +38,6 @@ def analysis_task(task_id, c_binary_path, rust_binary_path):
     """
     try:
         task = TranslationTask.objects.get(id=task_id)
-        # results = perform_analysis(c_binary_path, rust_binary_path)
         results = {
             "c_execution_time": 1.23,
             "rust_execution_time": 1.10,
@@ -62,51 +59,68 @@ def analysis_task(task_id, c_binary_path, rust_binary_path):
     except Exception as e:
         return f"Analysis for {task_id} failed: {str(e)}"
 
-
-from celery import shared_task
-
+# Task for preprocessing the C file
 @shared_task
-def preprocess_task(input_file_path):
-    from salvage_backend.transpiler.services.preprocessor.preprocess import preprocess_c_file  # import your function
-    preprocessed_path = preprocess_c_file(input_file_path)
+def preprocess_task(input_code):
+    from transpiler.services.preprocessor.preprocess import preprocess_c_file 
+    preprocessed_path = preprocess_c_file(input_code)
     return preprocessed_path
 
+# Task for extracting symbols and building a dependency graph
 @shared_task
 def extract_and_build_task(preprocessed_file):
-    from salvage_backend.transpiler.services.preprocessor import extract_symbols, build_dependency_graph
+    from transpiler.services.preprocessor.segmentation import extract_symbols, build_dependency_graph
     symbols = extract_symbols(preprocessed_file)
     graph = build_dependency_graph(symbols)
-    return {"symbols": symbols, "graph_data": nx.readwrite.json_graph.node_link_data(graph)}
+    graph_data = nx.readwrite.json_graph.node_link_data(graph)
+    # Return a dict containing both the preprocessed file path and the symbols
+    return {"preprocessed_file": preprocessed_file, "symbols": symbols, "graph_data": graph_data}
 
-
+# Updated segmentation task: accepts a single dictionary argument.
 @shared_task
-def segmentation_task(preprocessed_file, symbols):
-    from salvage_backend.transpiler.services.preprocessor import segment_code, generate_metadata
+def segmentation_task(data):
+    """
+    Segments the preprocessed file using the extracted symbols.
+    Expects a dict with keys 'preprocessed_file' and 'symbols'.
+    """
+    from transpiler.services.preprocessor.segmentation import segment_code
+    from transpiler.services.preprocessor.metadata import generate_metadata
+    preprocessed_file = data["preprocessed_file"]
+    symbols = data["symbols"]
     segments = segment_code(preprocessed_file, symbols)
     metadata_file = generate_metadata(symbols, segments)
     return {"segments": segments, "metadata": metadata_file}
 
+# Task for transpiling each segment individually
 @shared_task
 def transpile_segment(segment_file):
-    from salvage_backend.transpiler.services.translator import Transpiler
+    from transpiler.services.translator import Transpiler
     with open(segment_file, "r") as f:
         c_code = f.read()
     transpiler = Transpiler()
     rust_code = transpiler.transpile(c_code)
-    # Optionally, save the output to a file (e.g., segment name + ".rs")
     rust_file = segment_file.replace(".c", ".rs")
     with open(rust_file, "w") as f:
         f.write(rust_code)
     return rust_file
 
+# Task for postprocessing: cleaning and merging all Rust segments into one final file
 @shared_task
 def postprocess_task(segment_files):
-    # Import your cleaning function
-    from salvage_backend.transpiler.services.postprocessor import clean_and_merge_segments
+    from transpiler.services.postprocessor import clean_and_merge_segments
     final_rust_code = clean_and_merge_segments(segment_files)
     output_file = "final_transpiled.rs"
     with open(output_file, "w") as f:
         f.write(final_rust_code)
     return output_file
 
-
+@shared_task
+def create_transpile_chord(segmentation_result):
+    """
+    Given segmentation result (a dict with a 'segments' key mapping symbol names to file paths),
+    create a chord of transpile_segment tasks and trigger postprocess_task as callback.
+    """
+    segments = segmentation_result.get("segments", {})
+    from api.tasks import transpile_segment, postprocess_task
+    transpile_tasks = [transpile_segment.s(segment_file) for segment_file in segments.values()]
+    return chord(transpile_tasks)(postprocess_task.s())

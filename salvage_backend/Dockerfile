@@ -1,26 +1,41 @@
-# Dockerfile
-FROM python:3.11.2-alpine
+FROM python:3.11.2-bullseye
+
+# Add user and group first to ensure proper permissions
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 
 WORKDIR /usr/src/app
 
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# Install system dependencies including git
-RUN apk update && apk add --no-cache \
-    build-base \
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     gcc \
-    musl-dev \
-    git
+    clang \
+    libclang-dev \
+    git \
+    llvm \
+    llvm-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy the requirements file into the container
-COPY ./requirements.txt /usr/src/app/requirements.txt
+# Copy requirements first for caching
+COPY ./requirements.txt .
 
-# Upgrade pip and install Python dependencies
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copy the entire project into the container
-COPY . /usr/src/app/
+# Copy app files
+COPY . .
+
+# Ensure 'output' directory exists and has correct permissions
+RUN mkdir -p /usr/src/app/output && \
+    chmod -R 777 /usr/src/app/output && \
+    chown -R appuser:appgroup /usr/src/app/output
+
+# Set ownership before switching user
+RUN chown -R appuser:appgroup /usr/src/app
+
+USER appuser
 
 EXPOSE 8000
 

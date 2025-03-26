@@ -33,3 +33,19 @@ class TranslationTask(models.Model):
 
     def __str__(self):
         return f"TranslationTask {self.id} ({self.file.name})"
+    
+class TranslationResult(models.Model):
+    task = models.OneToOneField('TranslationTask', on_delete=models.CASCADE)
+    output = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Result for Task {self.task.id}"
+
+class Analysis(models.Model):
+    task = models.ForeignKey(TranslationTask, on_delete=models.CASCADE, related_name="analyses")
+    insights = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Analysis for Task {self.task.id}"
