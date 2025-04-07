@@ -41,6 +41,13 @@ def extract_function_signatures(code: str) -> list:
     traverse(root_node)
     return signatures
 
+def strip_rust_code_fences(code: str) -> str:
+    """Remove Markdown code fences like ```rust ... ``` or ``` ... ``` from code."""
+    code = code.strip()
+    code = re.sub(r'^```(?:rust)?\s*', '', code)
+    code = re.sub(r'\s*```$', '', code)
+    return code.strip()
+
 def compute_segment_hash(segment: str) -> str:
     """Compute MD5 hash based on function signatures."""
     signatures = extract_function_signatures(segment)
@@ -87,7 +94,7 @@ def load_dependency_metadata(metadata_path: str) -> list:
 
 def merge_segments(segments: dict, sorted_order: list, imports: list) -> str:
     """Merge segments with consolidated imports and in specified order."""
-    merged_code = "// Merged Rust Code\n\n"
+    merged_code = ""
     if imports:
         merged_code += "// Imports\n" + "\n".join(imports) + "\n\n"
     for seg_name in sorted_order:
@@ -96,12 +103,17 @@ def merge_segments(segments: dict, sorted_order: list, imports: list) -> str:
     return merged_code.strip()
 
 def clean_and_merge_segments(segment_dir: str, metadata_path: str, output_path: str) -> str:
-    # Load all segments
+    if not os.path.exists(segment_dir):
+        raise ValueError(f"Segment directory {segment_dir} does not exist!")
+    
     segments = {}
     for filename in os.listdir(segment_dir):
         if filename.endswith('.rs'):
             with open(os.path.join(segment_dir, filename), 'r', encoding='utf8') as f:
-                segments[filename] = f.read()
+                raw_code = f.read()
+                cleaned_code = strip_rust_code_fences(raw_code)
+                segments[filename] = cleaned_code
+
 
     # Remove duplicates
     unique_segments = remove_duplicate_segments(segments)
@@ -121,10 +133,9 @@ def clean_and_merge_segments(segment_dir: str, metadata_path: str, output_path: 
     sorted_order += missing  # Append missing segments
 
     # Merge and save
-    final_code = merge_segments(cleaned_mapping, sorted_order, unique_imports)
-    with open(output_path, 'w', encoding='utf8') as f:
-        f.write(final_code)
+    final_rust_code = merge_segments(cleaned_mapping, sorted_order, unique_imports)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(final_rust_code)
+        
     return output_path
 
-# Example usage:
-# final_file = clean_and_merge_segments("segments_dir", "metadata.json", "output.rs")

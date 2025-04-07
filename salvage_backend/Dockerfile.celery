@@ -1,7 +1,8 @@
 FROM python:3.11-bookworm
 
 # Create a non-root user
-RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+RUN groupadd -g 1000 appgroup && \
+    useradd -u 1000 -g appgroup -m appuser
 
 WORKDIR /usr/src/app
 
@@ -32,6 +33,10 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # Copy application files
 COPY . .
 
+RUN mkdir -p /shared_output && \
+    chown -R appuser:appgroup /shared_output && \
+    chmod 755 /shared_output
+    
 # Create and set permissions for output directory
 RUN mkdir -p /usr/src/app/output && \
     chmod -R 777 /usr/src/app/output && \
