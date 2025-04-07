@@ -1,7 +1,8 @@
 FROM python:3.11-bookworm
 
 # Add user and group first to ensure proper permissions
-RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+RUN groupadd -g 1000 appgroup && \
+    useradd -u 1000 -g appgroup -m appuser
 
 WORKDIR /usr/src/app
 
@@ -26,11 +27,14 @@ COPY ./requirements.txt .
 
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-
 COPY /build/my-languages.so /usr/src/app/build/my-languages.so
 # Copy app files
 COPY . .
 
+RUN mkdir -p /shared_output && \
+    chown -R appuser:appgroup /shared_output && \
+    chmod 755 /shared_output  
+    
 # Ensure 'output' directory exists and has correct permissions
 RUN mkdir -p /usr/src/app/output && \
     chmod -R 777 /usr/src/app/output && \

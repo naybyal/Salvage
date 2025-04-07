@@ -165,7 +165,9 @@ SIMPLE_JWT = {
 
 # Celery settings
 CELERY_BROKER_URL = 'redis://redis:6379/0'
-CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
+CELERY_RESULT_BACKEND = "redis://redis:6379/0"
+CELERY_RESULT_EXTENDED = True  # Required for complex results
+CELERY_RESULT_EXPIRES = 3600   # Keep results for 1 hour
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'

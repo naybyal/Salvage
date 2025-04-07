@@ -6,7 +6,9 @@ services:
       dockerfile: Dockerfile
     command: python manage.py runserver 0.0.0.0:8000
     volumes:
+      - shared_storage:/shared_output
       - .:/usr/src/app
+    user: "1000:1000"
     ports:
       - "8000:8000"
     depends_on:
@@ -28,7 +30,9 @@ services:
       dockerfile: Dockerfile.celery
     command: celery -A salvage_backend worker --loglevel=info
     volumes:
-      - .:/usr/src/app
+      - shared_storage:/shared_output  
+      - .:/usr/src/app  
+    user: "1000:1000"
     depends_on:
       - redis
     environment:
@@ -42,7 +46,7 @@ services:
     image: redis:latest
     command: redis-server --bind 0.0.0.0
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -54,3 +58,4 @@ networks:
 
 volumes:
   redis_data:
+  shared_storage:

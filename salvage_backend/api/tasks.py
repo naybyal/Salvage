@@ -1,9 +1,15 @@
+from gettext import translation
 from celery import shared_task, chord
 import networkx as nx
 import logging
 from .models import TranslationTask, TranslationResult, Analysis
+import os
+import shutil
+from django.db import transaction
 
 logger = logging.getLogger(__name__)
+
+SHARED_OUTPUT_DIR = "/shared_output/processed/"
 
 # Task for performing code translation from C to Rust
 @shared_task
@@ -105,14 +111,50 @@ def transpile_segment(segment_file):
     return rust_file
 
 # Task for postprocessing: cleaning and merging all Rust segments into one final file
+
 @shared_task
-def postprocess_task(segment_files):
+def postprocess_task(result_from_chord, file_id=None):
+    """
+    Process the merged segments, write the final output file, and update
+    the corresponding File record with the Rust code.
+    """
+    tmp_output = "/shared_output/processed/temp_final_output.rs"
+    final_output = "/shared_output/processed/final_transpiled.rs"
+
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(tmp_output), exist_ok=True, mode=0o755)
+
+    # Call your merging function (this should write to tmp_output)
     from transpiler.services.postprocessor.postprocess import clean_and_merge_segments
-    final_rust_code = clean_and_merge_segments(segment_dir='/tmp/output/segments/', metadata_path='/tmp/output/metadata.json', output_path='/tmp/output/final_output.rs')
-    output_file = "/tmp/output/final_transpiled.rs"
-    with open(output_file, "w") as f:
-        f.write(final_rust_code)
-    return output_file
+    clean_and_merge_segments(
+        segment_dir='/tmp/output/segments/',
+        metadata_path='/tmp/output/metadata.json',
+        output_path=tmp_output
+    )
+
+    # Atomically rename tmp_output to final_output
+    os.rename(tmp_output, final_output)
+
+    # Read the final content
+    with open(final_output, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # If a file_id was passed, update the File record in the database.
+    if file_id:
+        try:
+            from api.models import File
+            from django.db import transaction
+            with transaction.atomic():
+                file_instance = File.objects.select_for_update().get(id=file_id)
+                file_instance.rust_code = content
+                file_instance.save()
+        except Exception as db_error:
+            # Log the error (you might want to raise or handle this further)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error("Error updating File (id=%s): %s", file_id, db_error)
+
+    return {"path": final_output, "content": content}
 
 @shared_task
 def create_transpile_chord(segmentation_result):
@@ -124,3 +166,4 @@ def create_transpile_chord(segmentation_result):
     from api.tasks import transpile_segment, postprocess_task
     transpile_tasks = [transpile_segment.s(segment_file) for segment_file in segments.values()]
     return chord(transpile_tasks)(postprocess_task.s())
+

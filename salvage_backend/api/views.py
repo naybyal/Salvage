@@ -10,6 +10,8 @@ from django.contrib.auth import get_user_model
 from .models import File
 from .serializers import UserSerializer, FileSerializer
 from services.transpiler_workflow import run_transpilation_workflow
+from celery.result import AsyncResult
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -59,40 +61,84 @@ class TranspileAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        input_code = request.data.get('code')
-        if not input_code:
+        try:
+            # Start workflow and return task ID
+            task_id = run_transpilation_workflow(request.data['code'])
             return Response(
-                {"error": "No input code provided"},
+                {"task_id": task_id, "status": "processing"},
+                status=status.HTTP_202_ACCEPTED
+            )
+        except KeyError as e:
+            logger.error(f"Missing data: {str(e)}")
+            return Response(
+                {"error": "Invalid request format"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
-        # Save the input code to a temporary file
-        temp_file_path = default_storage.save(
-            f'temp/{request.FILES.get("input_file", "input")}.txt',  # You may adjust the file naming as needed
-            ContentFile(input_code)
-        )
-        absolute_file_path = os.path.join(default_storage.location, temp_file_path)
-
-        try:
-            # Initiate the transpilation workflow
-            result = run_transpilation_workflow(absolute_file_path)
-            # Wait for the Celery workflow to complete (adjust the timeout as needed)
-            final_output_path = result.get(timeout=300)  # e.g., wait up to 5 minutes
-            if os.path.exists(final_output_path):
-                with open(final_output_path, "r", encoding="utf-8") as f:
-                    final_rust_code = f.read()
-                return Response(
-                    {"rust_code": final_rust_code},
-                    status=status.HTTP_200_OK
-                )
-            else:
-                return Response(
-                    {"error": "Final output file not found."},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
         except Exception as e:
-            logger.error(f"Transpilation error: {str(e)}")
+            logger.error(f"Unexpected error in transpilation: {str(e)}")
             return Response(
-                {"error": str(e)},
+                {"error": f"Transpilation error: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    def get(self, request):
+        task_id = request.query_params.get("task_id")
+        if not task_id:
+            return Response({"error": "Task ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        result = AsyncResult(task_id, app=settings.CELERY_APP)
+        logger.info(f"Task {task_id} status: {result.state}, result: {result.result}")
+
+        if result.ready():
+            if result.successful():
+                try:
+                    # More robust error checking and result extraction
+                    task_result = result.result
+                    
+                    # Check if result is a dictionary with 'content' and 'path'
+                    if isinstance(task_result, dict):
+                        rust_code = task_result.get('content')
+                        file_path = task_result.get('path')
+                        
+                        if rust_code and file_path:
+                            # Extract Rust code from markdown-like code block if necessary
+                            if rust_code.startswith('```rust') and rust_code.endswith('```'):
+                                rust_code = rust_code.strip('```rust').strip('```').strip()
+                            
+                            return Response({
+                                "rust_code": rust_code, 
+                                "file_path": file_path
+                            })
+                    
+                    # If the above checks fail, try to get Rust code directly
+                    if isinstance(task_result, str) and task_result.strip():
+                        # Extract Rust code from markdown-like code block if necessary
+                        if task_result.startswith('```rust') and task_result.endswith('```'):
+                            task_result = task_result.strip('```rust').strip('```').strip()
+                        
+                        return Response({"rust_code": task_result})
+                    
+                    # If no valid result found
+                    logger.error(f"Unexpected task result format: {task_result}")
+                    return Response(
+                        {"error": "Unexpected result format"},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+                
+                except Exception as e:
+                    logger.error(f"Error processing task result: {str(e)}")
+                    return Response(
+                        {"error": f"Error processing result: {str(e)}"},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+            else:
+                # Task failed
+                error = result.result if result.result else "Unknown transpilation error"
+                logger.error(f"Transpilation failed: {error}")
+                return Response(
+                    {"error": "Transpilation failed", "details": str(error)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        
+        # Task is still processing
+        return Response({"status": "processing"}, status=status.HTTP_202_ACCEPTED)
