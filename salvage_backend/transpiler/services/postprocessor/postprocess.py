@@ -12,7 +12,6 @@ def parse_rust_code(code: str):
     """Parse Rust code using tree-sitter and return the parse tree."""
     if RUST_LANGUAGE is None:
         raise RuntimeError("Rust language library not initialized")
-    
     parser = Parser(RUST_LANGUAGE)
     return parser.parse(code.encode('utf8'))
 
@@ -24,6 +23,7 @@ def extract_function_signatures(code: str) -> list:
 
     def traverse(node):
         if node.type == 'function_item':
+            # Capture the function signature (everything until the body)
             body_node = None
             for child in node.children:
                 if child.type == 'block':
@@ -58,7 +58,6 @@ def remove_duplicate_segments(segments: dict) -> dict:
     """Remove segments with duplicate function signatures."""
     unique_segments = OrderedDict()
     seen_hashes = set()
-
     for name, code in segments.items():
         sig_hash = compute_segment_hash(code)
         if sig_hash not in seen_hashes:
@@ -86,6 +85,53 @@ def deduplicate_imports(segments: list) -> tuple:
     unique_imports = list(OrderedDict.fromkeys(all_imports))
     return unique_imports, cleaned_segments
 
+def deduplicate_functions_in_merged_code(code: str) -> str:
+    """
+    Remove duplicate Rust function definitions by comparing name and signature.
+    Retain the most complete version (based on function body length).
+    """
+    tree = parse_rust_code(code)
+    func_nodes = []
+
+    def traverse(node):
+        if node.type == 'function_item':
+            func_nodes.append(node)
+        for child in node.children:
+            traverse(child)
+    traverse(tree.root_node)
+
+    seen = {}
+    for node in func_nodes:
+        func_code = code[node.start_byte:node.end_byte]
+        name = None
+        for child in node.children:
+            if child.type == 'identifier':
+                name = code[child.start_byte:child.end_byte]
+                break
+        if name:
+            existing = seen.get(name)
+            if existing is None or len(func_code.strip()) > len(existing['code'].strip()):
+                seen[name] = {'code': func_code, 'start': node.start_byte, 'end': node.end_byte}
+
+    # Remove all duplicates
+    new_code = code
+    removal_ranges = []
+    for node in func_nodes:
+        name = None
+        for child in node.children:
+            if child.type == 'identifier':
+                name = code[child.start_byte:child.end_byte]
+                break
+        if name and (code[node.start_byte:node.end_byte] != seen[name]['code']):
+            removal_ranges.append((node.start_byte, node.end_byte))
+
+    for start, end in sorted(removal_ranges, reverse=True):
+        new_code = new_code[:start] + new_code[end:]
+
+    return new_code
+
+
+
 def load_dependency_metadata(metadata_path: str) -> list:
     """Load sorted segment order from metadata."""
     with open(metadata_path, 'r') as f:
@@ -102,6 +148,22 @@ def merge_segments(segments: dict, sorted_order: list, imports: list) -> str:
             merged_code += f"// Segment: {seg_name}\n{segments[seg_name]}\n\n"
     return merged_code.strip()
 
+
+def cleanup_segments(segment_dir: str):
+    """
+    Delete all files in the given segment directory.
+    If the directory is no longer needed, it can be removed entirely.
+    """
+    if os.path.exists(segment_dir):
+        for filename in os.listdir(segment_dir):
+            file_path = os.path.join(segment_dir, filename)
+            try:
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+                    print(f"Deleted file: {file_path}")
+            except Exception as e:
+                print(f"Error deleting file {file_path}: {e}")
+
 def clean_and_merge_segments(segment_dir: str, metadata_path: str, output_path: str) -> str:
     if not os.path.exists(segment_dir):
         raise ValueError(f"Segment directory {segment_dir} does not exist!")
@@ -114,28 +176,33 @@ def clean_and_merge_segments(segment_dir: str, metadata_path: str, output_path: 
                 cleaned_code = strip_rust_code_fences(raw_code)
                 segments[filename] = cleaned_code
 
-
-    # Remove duplicates
+    # Remove duplicate segments (based on function signatures)
     unique_segments = remove_duplicate_segments(segments)
     segment_codes = list(unique_segments.values())
 
-    # Deduplicate imports
+    # Deduplicate import statements from the segments
     unique_imports, cleaned_segments = deduplicate_imports(segment_codes)
 
-    # Rebuild cleaned mapping preserving order
+    # Rebuild mapping preserving order
     cleaned_mapping = OrderedDict()
     for (name, _), cleaned_code in zip(unique_segments.items(), cleaned_segments):
         cleaned_mapping[name] = cleaned_code
 
-    # Determine merge order
+    # Determine merge order from metadata
     sorted_order = load_dependency_metadata(metadata_path)
     missing = [name for name in cleaned_mapping if name not in sorted_order]
-    sorted_order += missing  # Append missing segments
+    sorted_order += missing  # Append any missing segments
 
-    # Merge and save
+    # Merge segments and imports into a single code string
     final_rust_code = merge_segments(cleaned_mapping, sorted_order, unique_imports)
+
+    # Run function deduplication on the merged code
+    final_rust_code = deduplicate_functions_in_merged_code(final_rust_code)
+
+    # Save final code to the output file
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(final_rust_code)
+
+    cleanup_segments(segment_dir)
         
     return output_path
-
